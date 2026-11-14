@@ -1,34 +1,31 @@
-# 🌱 Field Shift: Adapting Farms with NASA Data
+# Field Shift
 
-> **NASA International Space Apps Challenge 2026**  
-> **Challenge:** *Field Shift: Adapting Farms with NASA Data*  
-> **Developer:** Hiruni Nethranjali Silva
+Frontend-only NASA Space Apps Challenge 2026 app for **Field Shift: Adapting Farms with NASA Data**. The app turns NASA POWER agroclimatology telemetry into planting readiness guidance and three crop-rotation comparisons for Sri Lankan farm zones.
 
-**Field Shift** is an interactive, farmer-friendly agricultural decision-support web application that transforms live NASA Earth observation telemetry into actionable planting advisories and adaptive crop-rotation strategies.
+## Run locally
 
----
+```bash
+npm create vite@latest field-shift -- --template react-ts
+npm install
+npm install recharts lucide-react
+npm run dev
+```
 
-## 🎯 Problem & Solution
+For this repository, dependencies are already declared in `package.json`, so the usual workflow is:
 
-Changing rainfall patterns, prolonged dry spells, and shifting temperatures make traditional planting calendars increasingly risky for smallholder farmers. Many fields suffer from soil moisture depletion, nutrient exhaustion from continuous monocropping, or bare-field erosion between seasons.
+```bash
+npm install
+npm run dev
+npm run build
+```
 
-**Field Shift** bridges the gap between raw satellite data and day-to-day farm decisions by:
-1. **Fetching Real-Time Agroclimatology Telemetry:** Queries the **NASA POWER API** (`AG` community) for root-zone soil wetness (`GWETROOT`), surface soil wetness (`GWETTOP`), bias-corrected precipitation (`PRECTOTCORR`), and 2-meter air temperature (`T2M`).
-2. **Evaluating Planting Readiness:** Calculates a 0–100 planting readiness score (`OPTIMAL`, `CAUTION`, or `DELAY`) tailored to specific crops and locations.
-3. **Comparing 3 Adaptive Crop-Rotation Strategies:** Evaluates the farmer's existing baseline monocrop against two climate-resilient multi-season rotations (legume nitrogen-fixation and drought-tolerant alternatives), highlighting agronomic benefits, satellite grid limitations, and local verification caveats.
+Deploy the generated `dist/` folder to Vercel or Netlify with the Vite preset. No backend, environment variables, or API proxy are required.
 
----
+## Architecture
 
-## 🏗️ Architecture & Tech Stack
+- `src/services/nasaPowerService.ts` fetches the last 30 complete NASA POWER days, ending four days before the current UTC date. It cleans `-999` sentinels and falls back to a labeled reference snapshot when the browser is offline or the response is unusable.
+- `src/utils/agronomyEngine.ts` calculates the readiness score, status, recommendation, telemetry summary, and adaptive rotation strategies in the browser.
+- `src/types/agro.ts` keeps the telemetry, crop, strategy, and readiness data contracts explicit.
+- `src/App.tsx` provides the responsive farm controls, KPI cards, Recharts views, strategy comparison cards, and local-verification notices.
 
-```text
-┌───────────────────────────┐      REST / JSON       ┌──────────────────────────────┐
-│   React + TypeScript UI   │ ◄────────────────────► │     Python FastAPI Server    │
-│  (Vite, Tailwind, Charts) │                        │   (Scoring & Rotation Engine)│
-└───────────────────────────┘                        └──────────────┬───────────────┘
-                                                                    │ HTTPS GET
-                                                                    ▼
-                                                     ┌──────────────────────────────┐
-                                                     │        NASA POWER API        │
-                                                     │ (T2M, PRECTOTCORR, GWETROOT) │
-                                                     └──────────────────────────────┘
+NASA POWER attribution: NASA Langley Research Center (LaRC) POWER Project.
