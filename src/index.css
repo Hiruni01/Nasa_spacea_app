@@ -6,7 +6,8 @@
 :root { color: #102a28; background: #f4f5ef; font-family: 'DM Sans', sans-serif; font-synthesis: none; }
 html { scroll-behavior: smooth; }
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; }
+html, body, #root { margin: 0; padding: 0; width: 100%; max-width: 100%; overflow-x: hidden; }
+body { min-width: 320px; }
 h1, h2, h3, h4 { font-family: 'Space Grotesk', sans-serif; }
 button, select, input { font: inherit; }
 .grain { background-image: radial-gradient(rgba(6,59,54,.05) .7px, transparent .7px); background-size: 7px 7px; }
