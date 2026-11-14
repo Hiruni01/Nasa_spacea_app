@@ -26,20 +26,24 @@ export interface LocationPreset {
 }
 export interface DailyReading {
   date: string; temperature: number | null; precipitation: number | null
-  rootWetness: number | null; topWetness: number | null
+  rootWetness: number | null; topWetness: number | null; humidityPct: number | null
 }
 export interface Telemetry {
   readings: DailyReading[]; source: 'live' | 'fallback'; fetchedAt: string
   latitude: number; longitude: number
 }
+export interface NasaSummary {
+  avgHumidityPct: number | null
+}
 export interface SeasonalClimatology {
-  monthly: Record<number, { temperature: number; precipitation: number; rootWetness: number }>
+  monthly: Record<number, { temperature: number; precipitation: number; rootWetness: number; humidityPct: number }>
 }
 export interface FutureOutlookDay {
   date: string
   projectedMoisturePct: number
   projectedRainMm: number
   projectedTempC: number
+  projectedHumidityPct: number
   confidenceBandLow: number
   confidenceBandHigh: number
 }

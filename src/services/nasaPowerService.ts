@@ -9,7 +9,7 @@ const fallbackValues = [
   [28.4, 2.9, 45, 55], [27.8, 5.1, 48, 59], [27.2, 9.2, 53, 65], [27.5, 3.7, 55, 67],
   [28.1, 0, 54, 66], [28.6, 0, 51, 63], [29.3, 0, 48, 59], [29.5, 0, 45, 55],
   [28.8, 1.5, 44, 53], [28.1, 4.3, 46, 56], [27.7, 6.8, 50, 61], [28.2, 0.8, 52, 64],
-  [28.9, 0, 49, 60], [29.1, 0, 46, 56],
+  [28.9, 0, 49, 60, 78], [29.1, 0, 46, 56, 76],
 ]
 
 const isoDate = (date: Date) => date.toISOString().slice(0, 10).replace(/-/g, '')
@@ -36,7 +36,7 @@ function createFallback(latitude: number, longitude: number): Telemetry {
   const readings = fallbackValues.map((values, index) => {
     const date = new Date(end)
     date.setUTCDate(end.getUTCDate() - (29 - index))
-    return { date: date.toISOString().slice(0, 10), temperature: values[0], precipitation: values[1], rootWetness: values[2], topWetness: values[3] }
+    return { date: date.toISOString().slice(0, 10), temperature: values[0], precipitation: values[1], rootWetness: values[2], topWetness: values[3], humidityPct: values[4] ?? 70 }
   })
   return { readings, source: 'fallback', fetchedAt: new Date().toISOString(), latitude, longitude }
 }
@@ -45,7 +45,7 @@ export async function fetchNasapowerTelemetry(latitude: number, longitude: numbe
   const { start, end } = windowDates()
   const url = new URL(API)
   url.search = new URLSearchParams({
-    parameters: 'T2M,PRECTOTCORR,GWETROOT,GWETTOP', community: 'AG',
+    parameters: 'T2M,PRECTOTCORR,GWETROOT,GWETTOP,RH2M', community: 'AG',
     longitude: String(longitude), latitude: String(latitude), start, end, format: 'JSON',
   }).toString()
   try {
@@ -60,6 +60,7 @@ export async function fetchNasapowerTelemetry(latitude: number, longitude: numbe
       precipitation: clean(parameters.PRECTOTCORR?.[date]),
       rootWetness: clean(parameters.GWETROOT?.[date]),
       topWetness: clean(parameters.GWETTOP?.[date]),
+      humidityPct: clean(parameters.RH2M?.[date]),
     }))
     if (readings.length < 5) throw new Error('Not enough NASA observations')
     return { readings, source: 'live', fetchedAt: new Date().toISOString(), latitude, longitude }
@@ -76,6 +77,7 @@ const climatologyFromReadings = (readings: DailyReading[]): SeasonalClimatology 
         temperature: mean(monthReadings.map((reading) => reading.temperature), 28),
         precipitation: mean(monthReadings.map((reading) => reading.precipitation), 2),
         rootWetness: mean(monthReadings.map((reading) => reading.rootWetness), 50),
+        humidityPct: mean(monthReadings.map((reading) => reading.humidityPct), 70),
       }
     }
     return { monthly }
@@ -84,7 +86,7 @@ const climatologyFromReadings = (readings: DailyReading[]): SeasonalClimatology 
 export async function fetchNasapowerSeasonalClimatology(latitude: number, longitude: number, fallbackReadings: DailyReading[]): Promise<SeasonalClimatology> {
     const url = new URL(API)
     url.search = new URLSearchParams({
-      parameters: 'T2M,PRECTOTCORR,GWETROOT', community: 'AG',
+      parameters: 'T2M,PRECTOTCORR,GWETROOT,RH2M', community: 'AG',
       longitude: String(longitude), latitude: String(latitude),
       start: '20210101', end: '20251231', format: 'JSON',
     }).toString()
@@ -100,6 +102,7 @@ export async function fetchNasapowerSeasonalClimatology(latitude: number, longit
         precipitation: clean(parameters.PRECTOTCORR[date]),
         rootWetness: clean(parameters.GWETROOT[date]),
         topWetness: null,
+        humidityPct: clean(parameters.RH2M?.[date]),
       }))
       return climatologyFromReadings(readings)
     } catch {
@@ -118,6 +121,9 @@ export function buildFutureOutlook(telemetry: Telemetry, soil: SoilProfile, scen
       const monthBaseline = climatology.monthly[date.getUTCMonth() + 1] ?? climatology.monthly[1]
       const progress = (index + 1) / 30
       const seasonalTemperature = latestTemperature + (monthBaseline.temperature - latestTemperature) * progress + scenario.temperatureAnomaly
+      const latestHumidity = latest.humidityPct ?? monthBaseline.humidityPct
+      const humidityScenarioAdjustment = (-scenario.temperatureAnomaly * 2) + (scenario.rainfallDeltaPercent * 10)
+      const projectedHumidityPct = clamp(latestHumidity + (monthBaseline.humidityPct - latestHumidity) * progress + humidityScenarioAdjustment, 0, 100)
       const rainfallFactor = 1 + scenario.rainfallDeltaPercent
       const projectedRainMm = Math.max(0, monthBaseline.precipitation * rainfallFactor)
       const rainfallMoistureEffect = 1 + scenario.rainfallDeltaPercent * 0.35
@@ -129,6 +135,7 @@ export function buildFutureOutlook(telemetry: Telemetry, soil: SoilProfile, scen
         projectedMoisturePct,
         projectedRainMm,
         projectedTempC: seasonalTemperature,
+        projectedHumidityPct,
         confidenceBandLow: seasonalTemperature - confidence,
         confidenceBandHigh: seasonalTemperature + confidence,
       }
