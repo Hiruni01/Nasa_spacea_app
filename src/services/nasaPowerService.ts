@@ -1,4 +1,4 @@
-import type { DailyReading, Telemetry } from '../types/agro'
+import type { ClimateScenario, DailyReading, FutureOutlookDay, SeasonalClimatology, SoilProfile, Telemetry } from '../types/agro'
 
 const API = 'https://power.larc.nasa.gov/api/temporal/daily/point'
 const fallbackValues = [
@@ -23,6 +23,12 @@ const windowDates = () => {
 
 const clean = (value: number | undefined): number | null =>
   value === undefined || value <= -900 ? null : value
+
+const mean = (values: Array<number | null>, fallback: number) => {
+  const valid = values.filter((value): value is number => value !== null)
+  return valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : fallback
+}
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
 function createFallback(latitude: number, longitude: number): Telemetry {
   const end = new Date()
@@ -60,4 +66,71 @@ export async function fetchNasapowerTelemetry(latitude: number, longitude: numbe
   } catch {
     return createFallback(latitude, longitude)
   }
+}
+
+const climatologyFromReadings = (readings: DailyReading[]): SeasonalClimatology => {
+    const monthly: SeasonalClimatology['monthly'] = {}
+    for (let month = 1; month <= 12; month += 1) {
+      const monthReadings = readings.filter((reading) => Number(reading.date.slice(5, 7)) === month)
+      monthly[month] = {
+        temperature: mean(monthReadings.map((reading) => reading.temperature), 28),
+        precipitation: mean(monthReadings.map((reading) => reading.precipitation), 2),
+        rootWetness: mean(monthReadings.map((reading) => reading.rootWetness), 50),
+      }
+    }
+    return { monthly }
+}
+
+export async function fetchNasapowerSeasonalClimatology(latitude: number, longitude: number, fallbackReadings: DailyReading[]): Promise<SeasonalClimatology> {
+    const url = new URL(API)
+    url.search = new URLSearchParams({
+      parameters: 'T2M,PRECTOTCORR,GWETROOT', community: 'AG',
+      longitude: String(longitude), latitude: String(latitude),
+      start: '20210101', end: '20251231', format: 'JSON',
+    }).toString()
+    try {
+      const response = await fetch(url)
+      if (!response.ok) throw new Error(`NASA POWER climatology responded ${response.status}`)
+      const json = await response.json() as { properties?: { parameter?: Record<string, Record<string, number>> } }
+      const parameters = json.properties?.parameter
+      if (!parameters?.T2M || !parameters.PRECTOTCORR || !parameters.GWETROOT) throw new Error('NASA climatology had no parameter data')
+      const readings = Object.keys(parameters.T2M).map((date) => ({
+        date: `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6)}`,
+        temperature: clean(parameters.T2M[date]),
+        precipitation: clean(parameters.PRECTOTCORR[date]),
+        rootWetness: clean(parameters.GWETROOT[date]),
+        topWetness: null,
+      }))
+      return climatologyFromReadings(readings)
+    } catch {
+      return climatologyFromReadings(fallbackReadings)
+    }
+}
+
+export function buildFutureOutlook(telemetry: Telemetry, soil: SoilProfile, scenario: ClimateScenario, climatology: SeasonalClimatology): FutureOutlookDay[] {
+    const latest = telemetry.readings[telemetry.readings.length - 1]
+    const latestTemperature = latest.temperature ?? 28
+    const latestMoisture = latest.rootWetness ?? 50
+    const latestDate = new Date(`${latest.date}T00:00:00`)
+    return Array.from({ length: 30 }, (_, index) => {
+      const date = new Date(latestDate)
+      date.setUTCDate(date.getUTCDate() + index + 1)
+      const monthBaseline = climatology.monthly[date.getUTCMonth() + 1] ?? climatology.monthly[1]
+      const progress = (index + 1) / 30
+      const seasonalTemperature = latestTemperature + (monthBaseline.temperature - latestTemperature) * progress + scenario.temperatureAnomaly
+      const rainfallFactor = 1 + scenario.rainfallDeltaPercent
+      const projectedRainMm = Math.max(0, monthBaseline.precipitation * rainfallFactor)
+      const rainfallMoistureEffect = 1 + scenario.rainfallDeltaPercent * 0.35
+      const seasonalMoisture = latestMoisture + (monthBaseline.rootWetness - latestMoisture) * progress
+      const projectedMoisturePct = clamp(seasonalMoisture * soil.retentionMultiplier * rainfallMoistureEffect, 0, 100)
+      const confidence = 8 * (0.75 + progress * 0.25)
+      return {
+        date: date.toISOString().slice(0, 10),
+        projectedMoisturePct,
+        projectedRainMm,
+        projectedTempC: seasonalTemperature,
+        confidenceBandLow: seasonalTemperature - confidence,
+        confidenceBandHigh: seasonalTemperature + confidence,
+      }
+    })
 }

@@ -32,6 +32,17 @@ export interface Telemetry {
   readings: DailyReading[]; source: 'live' | 'fallback'; fetchedAt: string
   latitude: number; longitude: number
 }
+export interface SeasonalClimatology {
+  monthly: Record<number, { temperature: number; precipitation: number; rootWetness: number }>
+}
+export interface FutureOutlookDay {
+  date: string
+  projectedMoisturePct: number
+  projectedRainMm: number
+  projectedTempC: number
+  confidenceBandLow: number
+  confidenceBandHigh: number
+}
 export interface Readiness {
   score: number; status: 'OPTIMAL' | 'CAUTION' | 'DELAY'; recommendation: string
 }
